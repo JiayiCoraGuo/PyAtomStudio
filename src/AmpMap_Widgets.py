@@ -1140,6 +1140,11 @@ class myWidget(QWidget):
         self.Z     = self.atoms * self.amps
         self.Z_original = self.Z.copy()  # Store unfiltered original
 
+        # Start a fresh undo history: older entries belong to the previous
+        # image (possibly a different size) and must not be restored onto it.
+        self.image_history["Input_figure"] = [self.Z.copy()]
+        self.history_index["Input_figure"] = 0
+
         # ------------------------------------------------------------------
         # 2.  Refresh ORIGINAL-IMAGE panel
         # ------------------------------------------------------------------
@@ -2084,9 +2089,7 @@ class myWidget(QWidget):
         im = ax.imshow(np.abs(fft_atoms), cmap=self.current_cmap)
         ax.axis("off")
 
-        # draw / update red "X" at current k1
-        if self.fft_peak_scatter:
-            self.fft_peak_scatter.remove()
+        # draw red "X" at current k1 (clf() above already removed the old one)
         self.fft_peak_scatter = ax.scatter(self.v1x, self.v1y,
                                            color="red", marker="x", s=60,
                                            label="User Selection")
@@ -2097,13 +2100,7 @@ class myWidget(QWidget):
         self.FFT_Canvas.draw_idle()
 
         # --------- Amp-map etc. -----------------------------------------
-        v1 = np.array([self.v1x, self.v1y])
-        v2 = np.array([self.v2x, self.v2y])
-        r0 = np.array([self.x0,  self.y0])
-        ampmap = np.abs(am.CDWampmap2D(self.Z, r0, v1, v2,
-                                       self.sigma, self.current_cmap))
-        self._refresh_panel(self.AmpMap_figure, self.AmpMap_Canvas,
-                            ampmap, show_axes=False)
+        self._refresh_ampmap()
 
         # ---------- Displacement & Phase fields --------------------------
         # incomplete
@@ -2114,16 +2111,25 @@ class myWidget(QWidget):
             raise ValueError
         return float(parts[0]), float(parts[1])
 
-    def regenerate_everything(self):
-        """Recompute Z-space maps that depend on (k1,k2,r0,sigma) and repaint."""
+    def _refresh_ampmap(self):
+        """Recompute and repaint the Amplitude Map panel, if the window has one.
+
+        initAmpMap() is optional and the main window does not currently add
+        it, in which case AmpMap_figure / AmpMap_Canvas do not exist.
+        """
+        if not hasattr(self, "AmpMap_figure"):
+            return
         v1 = np.array([self.v1x, self.v1y])
         v2 = np.array([self.v2x, self.v2y])
         r0 = np.array([self.x0,  self.y0])
-
-        ampmap = np.abs(am.CDWampmap2D(self.Z, r0, v1, v2, self.sigma, self.current_cmap))
+        ampmap = np.abs(am.CDWampmap2D(self.Z, r0, v1, v2,
+                                       self.sigma, self.current_cmap))
         self._refresh_panel(self.AmpMap_figure, self.AmpMap_Canvas,
                             ampmap, show_axes=False)
-        self.refresh_fft_amp_phase()
+
+    def regenerate_everything(self):
+        """Recompute Z-space maps that depend on (k1,k2,r0,sigma) and repaint."""
+        self.refresh_fft_amp_phase()            # also refreshes the AmpMap panel
 
         # ---- if σ affects Displacement / Phase, update those here -------
         # self.refresh_fft_amp_phase()  # <- only if needed
