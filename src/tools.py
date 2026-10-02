@@ -674,6 +674,11 @@ def refine_peak_center(fft_magnitude, x_guess, y_guess, window_size=10):
     return refined_x, refined_y
 
 
+def _g_cycles_per_pixel(g_pos, rows, cols):
+    """FFT peak position (x, y) in pixels of the fftshifted FFT -> g in cycles/pixel."""
+    return np.array([(g_pos[0] - cols // 2) / cols, (g_pos[1] - rows // 2) / rows])
+
+
 def standard_gpa(image, g_vectors, mask_radius, sigma=5.0, edge_blur=5):
     """
     Standard GPA implementation.
@@ -698,7 +703,6 @@ def standard_gpa(image, g_vectors, mask_radius, sigma=5.0, edge_blur=5):
     from skimage.restoration import unwrap_phase
 
     rows, cols = image.shape
-    center_y, center_x = rows // 2, cols // 2
 
     # Subtract mean before FFT
     fft_image = np.fft.fftshift(np.fft.fft2(image - np.mean(image)))
@@ -706,19 +710,24 @@ def standard_gpa(image, g_vectors, mask_radius, sigma=5.0, edge_blur=5):
     # Initialize phase arrays
     phases = []
 
+    Y, X = np.mgrid[:rows, :cols]
+
     for gx, gy in g_vectors:
         # Create Gaussian mask around g-vector
-        Y, X = np.ogrid[:rows, :cols]
         mask = np.exp(-((X - gx)**2 + (Y - gy)**2) / (2 * mask_radius**2))
 
         # Apply mask in frequency domain
         masked_fft = fft_image * mask
 
-        # Inverse FFT to get complex image
+        # Inverse FFT to get complex image H_g(r) = A exp(i(2*pi*g.r + P_g(r)))
         complex_image = np.fft.ifft2(np.fft.ifftshift(masked_fft))
 
-        # Extract and unwrap phase
-        phase = np.angle(complex_image)
+        # Geometric phase P_g: remove the carrier 2*pi*g.r of the reference
+        # lattice (g in cycles/pixel), otherwise the phase is dominated by
+        # the lattice fringes themselves instead of their distortion.
+        g = _g_cycles_per_pixel((gx, gy), rows, cols)
+        carrier = 2 * np.pi * (g[0] * X + g[1] * Y)
+        phase = np.angle(complex_image * np.exp(-1j * carrier))
         phase_unwrapped = unwrap_phase(phase)
 
         # Smooth phase
@@ -729,33 +738,16 @@ def standard_gpa(image, g_vectors, mask_radius, sigma=5.0, edge_blur=5):
 
     # Calculate strain components from phase gradients
     if len(phases) >= 2:
-        # Get g-vectors relative to center
-        g1 = np.array([g_vectors[0][0] - center_x, g_vectors[0][1] - center_y])
-        g2 = np.array([g_vectors[1][0] - center_x, g_vectors[1][1] - center_y])
-
-        # Normalize g-vectors
-        g1_mag = np.linalg.norm(g1)
-        g2_mag = np.linalg.norm(g2)
-
-        # Calculate phase gradients
-        phi1 = phases[0] - np.mean(phases[0])
-        phi2 = phases[1] - np.mean(phases[1])
-
-        # Calculate displacement field components
-        # G matrix: [g1x, g1y; g2x, g2y]
-        G = np.array([[g1[0], g1[1]], [g2[0], g2[1]]])
+        # Reference g-vectors in cycles/pixel, relative to the FFT centre
+        G = np.array([_g_cycles_per_pixel(g_vectors[0], rows, cols),
+                      _g_cycles_per_pixel(g_vectors[1], rows, cols)])
         G_inv = np.linalg.inv(G)
 
-        # Calculate displacement at each pixel
-        ux = np.zeros_like(image, dtype=float)
-        uy = np.zeros_like(image, dtype=float)
-
-        for i in range(rows):
-            for j in range(cols):
-                phi_vec = np.array([phi1[i, j], phi2[i, j]]) / (2 * np.pi)
-                u_vec = -np.dot(G_inv, phi_vec)
-                ux[i, j] = u_vec[0]
-                uy[i, j] = u_vec[1]
+        # P_g = -2*pi * g.u  =>  u = -G^-1 [P_g1, P_g2] / (2*pi)
+        phi1 = phases[0] - np.mean(phases[0])
+        phi2 = phases[1] - np.mean(phases[1])
+        u = -np.einsum("ij,jrc->irc", G_inv, np.array([phi1, phi2])) / (2 * np.pi)
+        ux, uy = u[0], u[1]
 
         # Calculate strain tensor from displacement gradients
         dux_dx = np.gradient(ux, axis=1)
