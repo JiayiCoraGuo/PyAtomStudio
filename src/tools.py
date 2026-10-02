@@ -442,9 +442,13 @@ def rotate_image(image, angle, reshape=True):
 
     Returns:
     --------
-    ndarray : Rotated image
+    ndarray : Rotated image. Corners that fall outside the original image are
+    filled with the image mean, so every later filter and FFT stays finite
+    (a NaN fill spreads through filters and makes the whole FFT NaN).
     """
-    return ndimage.rotate(image, angle, reshape=reshape, mode='constant', cval=np.nan)
+    image = np.asarray(image, dtype=float)
+    return ndimage.rotate(image, angle, reshape=reshape, mode='constant',
+                          cval=float(np.mean(image)))
 
 
 def flip_image(image, direction='horizontal'):
