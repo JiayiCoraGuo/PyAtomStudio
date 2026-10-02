@@ -154,12 +154,10 @@ def CDWampmap2D(Z,r0,v1,v2,sigma,colormap):
     # Get the number of pixels/samples of the image
     pix = len(Z[0])
     
-    # Calculate the center pixel depending on if N is even or odd
+    # Center pixel of the fftshifted FFT (the zero frequency). numpy's
+    # fftshift puts it at index pix // 2 for both even and odd pix
     # (assuming Z is a square NxN image array)
-    if len(Z)%2 == 0:
-        ctr_pt = np.floor(pix/2) + 1
-    else:
-        ctr_pt = np.floor(pix/2)
+    ctr_pt = pix // 2
     
     ctr = np.array([ctr_pt,ctr_pt])
     
@@ -176,8 +174,9 @@ def CDWampmap2D(Z,r0,v1,v2,sigma,colormap):
     # (mean(mean(Z)) is a scalar value). This will remove the peak at k = 0
     
     
-    # Create meshgrid of points
-    x = np.linspace(0,pix,pix)
+    # Create meshgrid of pixel indices 0 .. pix-1 (spacing exactly 1 pixel,
+    # so that the demodulation exp(-i q.r) matches the FFT frequencies)
+    x = np.arange(pix)
     [X,Y] = np.meshgrid(x,x) ## MAKE SURE THIS IS DEFINED CORRECTLY!!!!!!! ie [X,Y] not [Y,X]
     # If you define this as [Y,X] you might need to transpose the final output
     
