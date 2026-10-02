@@ -1425,6 +1425,20 @@ class myWidget(QWidget):
         if canvas.toolbar:
             canvas.toolbar.home()
 
+    def _restore_history_entry(self, fig, canvas, fig_name, data):
+        """Show an undo/redo history entry in its panel.
+
+        Only the real-space panel's history holds images of the sample, so
+        only it may replace self.Z. The FFT panel's history holds FFT
+        magnitudes for display; writing those into self.Z would make every
+        later computation (FFT, maps, tools) run on the FFT instead.
+        """
+        if fig_name == "FFT_figure":
+            self._refresh_panel(fig, canvas, data, show_axes=False)
+        else:
+            self.Z = data.copy()
+            self._refresh_panel(fig, canvas, self.Z, show_axes=True)
+
     def _btn_undo(self, _btn, fig, canvas, toggle_attr=None, fig_name=None):
         """Undo last image processing operation or zoom/pan state."""
         if fig_name and fig_name in self.image_history:
@@ -1437,8 +1451,7 @@ class myWidget(QWidget):
                 idx -= 1
                 self.history_index[fig_name] = idx
                 # Restore previous image
-                self.Z = history[idx].copy()
-                self._refresh_panel(fig, canvas, self.Z, show_axes=True)
+                self._restore_history_entry(fig, canvas, fig_name, history[idx])
             elif canvas.toolbar:
                 # At beginning of image history, try toolbar undo for zoom/pan
                 canvas.toolbar.back()
@@ -1458,8 +1471,7 @@ class myWidget(QWidget):
                 idx += 1
                 self.history_index[fig_name] = idx
                 # Restore next image
-                self.Z = history[idx].copy()
-                self._refresh_panel(fig, canvas, self.Z, show_axes=True)
+                self._restore_history_entry(fig, canvas, fig_name, history[idx])
             elif canvas.toolbar:
                 # At end of image history, try toolbar redo for zoom/pan
                 canvas.toolbar.forward()
